@@ -8,7 +8,7 @@ We compare nine hyperspectral anomaly detectors on 14 TIFF scenes using pixel-le
 
 ## Experimental methods
 
-The methods and timings below describe the original nine-detector runs. The public runner measures six detectors directly and can evaluate raw score maps from separately run Auto-AD, GM-HAD, and TDD.
+The tables below report the original nine-detector experiments. The current runner launches all nine methods with separate author checkouts. Auto-AD and TDD use per-scene adapters around the author models, and GM-HAD uses the author training program. These runs have their own protocol and results.
 
 ### Scenes and evaluation
 
@@ -145,27 +145,27 @@ python -m scripts.had_comparison --datasets HAD12 --methods rx lrx aed
 
 The script searches `HAD_Data` by default and falls back to `data/HAD_Data`. Use `--data-dir` to specify another TIFF directory.
 
-To run the three integrated learned methods, use Linux or WSL2 with an NVIDIA GPU. The commands below use Python 3.12, PyTorch 2.7.1, and CUDA 12.8. Building CUDA extensions from source requires the CUDA Toolkit with `nvcc`. Clone the three author repositories at the revisions listed below before running their methods. [PyTorch installation instructions](https://pytorch.org/get-started/previous-versions/), [Mamba release](https://github.com/state-spaces/mamba/releases/tag/v2.2.6.post3)
+To run all nine methods, use Linux or WSL2 with an NVIDIA GPU. The commands below use Python 3.12, PyTorch 2.7.1, and CUDA 12.8. Building CUDA extensions from source requires the CUDA Toolkit with `nvcc`. Use a CUDA Toolkit that matches the PyTorch CUDA build, with its `bin` directory on `PATH`. Clone the six author repositories at the revisions listed below. [PyTorch installation instructions](https://pytorch.org/get-started/previous-versions/), [Mamba release](https://github.com/state-spaces/mamba/releases/tag/v2.2.6.post3)
 
 ```bash
-python -m pip install torch==2.7.1 --index-url https://download.pytorch.org/whl/cu128
+python -m pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128
 python -m pip install -r requirements-gpu.txt packaging setuptools wheel ninja
 python -m pip install --no-build-isolation causal-conv1d==1.5.4 mamba-ssm==2.2.6.post3
 
 # One method on one scene
 python -m scripts.had_comparison --datasets HAD12 --methods gthad
 
-# All six integrated methods on all scenes
+# All nine methods on all available scenes
 python -m scripts.had_comparison
 ```
 
-The integrated methods are `rx lrx aed gthad dms2f smhad`. Use `--output-dir` to set the run directory. Subsequent runs skip completed integrated results. Add `--rerun` to recompute them or `--learning-curves` to export training curves for GT-HAD, SM-HAD, or DMS2F-HAD.
+Add `--datasets HAD12` to run all nine methods on one scene. Use `--methods` to select individual detectors and `--output-dir` for a separate run. Subsequent runs skip completed results. Add `--rerun` to recompute them. The `--learning-curves` option applies to Auto-AD, GT-HAD, DMS2F-HAD, SM-HAD, and TDD.
 
 The default report directory is `results/had_comparison_paper/site`. Each anomaly map is saved alongside `scores.npy` and `metrics.json`.
 
 ## Code and provenance
 
-Clone each author repository you want to run and check out the listed revision. The runner imports DMS2F-HAD, GT-HAD, and SM-HAD from the listed paths. Auto-AD, GM-HAD, and TDD run from their own checkouts. All six checkout paths are ignored by Git.
+Clone the author repositories into the paths below and check out the listed revisions. Git ignores all six checkout paths.
 
 | Method | Source used by the benchmark | Upstream revision |
 | --- | --- | --- |
@@ -176,40 +176,32 @@ Clone each author repository you want to run and check out the listed revision. 
 | GM-HAD | `algorithms/gm_had` | [`1671f75`](https://github.com/TaoziLakeDeepSleep/GM-HAD/tree/1671f755a3b2a7b8798d1961f00d6a33b39e44ab) |
 | TDD | `algorithms/tdd_upstream` | [`8d1f1ec`](https://github.com/Jingtao-Li-CVer/TDD/tree/8d1f1ec99349a9e659383328e00ba8c8f2208cea) |
 
-For example, the following commands set up GM-HAD from the repository root. Use the same clone and checkout commands with the repository, path, and revision for each other method.
+Run the following commands once from the benchmark root.
 
 ```bash
+git clone https://github.com/RSIDEA-WHU2020/Auto-AD.git algorithms/auto_ad
+git -C algorithms/auto_ad checkout --detach 149d5526db595bf058ca5a7aae808af3ad7abf54
+git clone https://github.com/jeline0110/GT-HAD.git algorithms/gt_had
+git -C algorithms/gt_had checkout --detach c118ee0d606610aae12f3fab1ef18579169f4809
+git clone https://github.com/Ayushma00/DMS2F-HAD.git algorithms/dms2f_had
+git -C algorithms/dms2f_had checkout --detach 8546823701ef021da2a150e0bf9e9965863bbabc
+git clone https://github.com/Tanishq251/SM-HAD.git algorithms/sm_had
+git -C algorithms/sm_had checkout --detach 5fbbb4c836253a331d1528160e3d10d30f8bcda5
 git clone https://github.com/TaoziLakeDeepSleep/GM-HAD.git algorithms/gm_had
 git -C algorithms/gm_had checkout --detach 1671f755a3b2a7b8798d1961f00d6a33b39e44ab
+git clone https://github.com/Jingtao-Li-CVer/TDD.git algorithms/tdd_upstream
+git -C algorithms/tdd_upstream checkout --detach 8d1f1ec99349a9e659383328e00ba8c8f2208cea
 ```
 
-#### Run author code and import its score maps
+Then run `python -m scripts.had_comparison` to process all available scenes, or append `--datasets HAD12` to check a single scene.
 
-Prepare the common inputs. Each exported MAT contains `data` in Y ? X ? bands order and a Y ? X binary `map`.
+- Auto-AD runs 1,001 optimizer steps on the authors' skip network and evaluates its final reconstruction.
+- TDD trains the authors' model on scene-local pseudo-anomaly patches for 30 epochs and evaluates the final model. This adapter uses its own patch sampling and tiling.
+- GM-HAD invokes the authors' program on each prepared MAT scene. Its `author_elapsed_s` includes subprocess startup and may include first-time CUDA extension compilation. The common training and inference timing columns are blank for this method.
 
-```bash
-python -m scripts.had_comparison --prepare-only --datasets HAD12
-```
+PyTorch's deterministic CUDA mode is optional. The runner uses the active PyTorch settings for CUDA determinism and TF32. Auto-AD and TDD use fixed seeds, but some CUDA operations can still produce different gradients between runs. In particular, Auto-AD uses reflection padding, and TDD uses bilinear resizing. The GPU, PyTorch and CUDA versions, and TF32 settings can affect final ROC AUC. [PyTorch reproducibility guidance](https://docs.pytorch.org/docs/2.7/notes/randomness.html)
 
-- **Auto-AD**. Use a CUDA-enabled PyTorch environment with NumPy, SciPy, Matplotlib, Pillow, and h5py. The following command creates the HDF5 `image` dataset in bands × X × Y order, which `AD_main_loop.py` converts to bands × Y × X. In the local author checkout, set `root_path`, `residual_root_path`, and `background_root_path` to `./data/HAD`, `./data/HAD_detection`, and `./data/HAD_background`. Replace `time.clock()` with `time.perf_counter()` on Python 3.8 and later. Run `python AD_main_loop.py` from that checkout and copy `data/HAD_detection1.mat` to `data/author_scores/HAD12/autoad/scores.mat` in the benchmark checkout.
-- **GM-HAD**. Follow the authors' dependency setup in a CUDA environment and edit the `dataset_list` in their local `main.py` to point to the prepared `HAD12.mat`. Run `python main.py` from their checkout and copy `Result/GM-HAD/HAD12.mat` to `data/author_scores/HAD12/gmhad/scores.mat`.
-- **TDD**. Install the authors' dependencies. Export the prepared cube as a multiband TIFF readable by GDAL, keeping its spatial orientation and band order. Follow the authors' training or checkpoint setup for the matching number of bands. Set the image path, band count, compatible checkpoint directory, and tile parameters in `configs/Infer_config.yaml`, then run `python run.py configs/Infer_config.yaml` from the checkout. Copy the exported `*_anomaly_map.tif` to `data/author_scores/HAD12/tdd/scores.tif`.
-
-The following commands run from the benchmark root and export the inputs for Auto-AD and TDD after `--prepare-only`. Run only the command for the checkout you plan to use.
-
-```bash
-python -c "from pathlib import Path; from scipy.io import loadmat; import h5py; p=Path('algorithms/auto_ad/data/HAD1.mat'); p.parent.mkdir(parents=True, exist_ok=True); x=loadmat('results/had_comparison_paper/data/HAD12.mat')['data']; f=h5py.File(p, 'w'); f['image']=((x-x.min())/max(float(x.max()-x.min()), 1e-12)).transpose(2,1,0); f.close()"
-python -c "from scipy.io import loadmat; from tifffile import imwrite; x=loadmat('results/had_comparison_paper/data/HAD12.mat')['data']; imwrite('algorithms/tdd_upstream/HAD12.tif', x.transpose(2,0,1), photometric='minisblack', planarconfig='separate')"
-```
-
-The importer also accepts a raw two-dimensional `scores.npy` in any of those three method folders. Score maps must have the same spatial shape and orientation as the prepared mask. Higher values must indicate more anomalous pixels. Use the numeric score map before any display normalization or colormap.
-
-```bash
-python -m scripts.had_comparison --datasets HAD12 --methods autoad gmhad tdd \
-  --author-scores-dir data/author_scores --output-dir results/author_comparison
-```
-
-The report computes pixel-level ROC AUC and records the map source for imported results. The original timing tables and the original Auto-AD, GM-HAD, and TDD training recipes describe earlier benchmark runs. The upstream programs have their own training and inference settings.
+The optional `--author-scores-dir` still accepts existing maps for Auto-AD, GM-HAD, and TDD. Each map goes in `<scene>/<method>/scores.npy`. The importer also accepts the native `scores.mat` keys `detection` and `det` for Auto-AD and GM-HAD respectively, and `scores.tif` for TDD.
 
 #### Integrated adapters
 

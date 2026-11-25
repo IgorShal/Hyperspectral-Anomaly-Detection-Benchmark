@@ -1,6 +1,7 @@
 """Compare nine hyperspectral anomaly detectors and save full-resolution maps."""
 import argparse
 import json
+import subprocess
 import sys
 import tempfile
 import time
@@ -15,11 +16,18 @@ from scripts.comparison_helpers import ValidationTiming, atomic, measure_model, 
 from scripts.tiff_benchmark_data import load_prepared_scene, prepare_tiff_data
 
 METHODS = ("autoad", "gthad", "dms2f", "rx", "aed", "lrx", "smhad", "gmhad", "tdd")
-EPOCH_COUNTS = {"gthad": 150, "dms2f": 100, "smhad": 100}
+EPOCH_COUNTS = {"autoad": 1001, "gthad": 150, "dms2f": 100, "smhad": 100, "tdd": 30}
 CMM_METHODS = {"gthad", "smhad"}
 AUTHOR_OUTPUTS = {"autoad": (".mat", "detection"), "gmhad": (".mat", "det"), "tdd": (".tif", None)}
-RUNNABLE_METHODS = tuple(method for method in METHODS if method not in AUTHOR_OUTPUTS)
-TIMING_PROTOCOL = 2
+AUTHOR_ENTRIES = {
+    "autoad": "auto_ad/models/skip.py",
+    "gthad": "gt_had/dnnmethods/GT-HAD/net.py",
+    "dms2f": "dms2f_had/src/train.py",
+    "smhad": "sm_had/net.py",
+    "gmhad": "gm_had/main.py",
+    "tdd": "tdd_upstream/models/TDD_seg_model.py",
+}
+TIMING_PROTOCOL = 3
 
 
 def save_ground_truth(mask, path):
@@ -61,12 +69,32 @@ def import_author_scores(scores_dir, method, scene, mask, output):
         from tifffile import imread
 
         scores = imread(source)
+    return {"auc": save_external_map(scores, method, scene, mask, output), "result_source": "author_scores"}
+
+
+def save_external_map(scores, method, scene, mask, output):
+    import numpy as np
+
     if scores.shape != mask.shape or scores.dtype.kind not in "iuf" or not np.isfinite(scores).all():
         raise ValueError(f"{scene}/{method}: expected a real, finite score map of shape {mask.shape}, got {scores.shape}")
     auc = score_auc(scores, mask)
     np.save(output / "scores.npy", scores)
     save_anomaly_map(scores, output / "map.png")
-    return {"auc": auc, "result_source": "author_scores"}
+    return auc
+
+
+def run_gmhad(scene, mask, prepared, output):
+    from scipy.io import loadmat
+
+    entry = ROOT / "scripts/gmhad_entry.py"
+    source = ROOT / "algorithms/gm_had"
+    started = time.perf_counter()
+    subprocess.run([sys.executable, str(entry), str(source), str(prepared), str(output)], check=True)
+    elapsed = time.perf_counter() - started
+    scores = loadmat(output / f"{scene}.mat", variable_names=("det",))["det"]
+    auc = save_external_map(scores, "gmhad", scene, mask, output)
+    return {"auc": auc, "auc_last_epoch": auc, "result_source": "author_run",
+            "author_elapsed_s": elapsed, "seed": 3, "epoch_limit": 60}
 
 
 def evaluate(method, scene, folder, cube, mask, *, final_epoch=None, record_curve=False):
@@ -126,25 +154,35 @@ def evaluate(method, scene, folder, cube, mask, *, final_epoch=None, record_curv
         return metadata
 
     scores = None
-    cudnn = torch.backends.cudnn
-    with register_optimizer_step_post_hook(count), cudnn.flags(enabled=cudnn.enabled, allow_tf32=cudnn.allow_tf32):
-        from scripts.author_had import dms2f_predictor, transformer_predictor
+    adapter = None
+    if method in {"autoad", "tdd"}:
+        from scripts.author_models import autoad_predictor, tdd_predictor
 
+        adapter = autoad_predictor if method == "autoad" else tdd_predictor
+    with register_optimizer_step_post_hook(count):
         start = begin_training()
         opts = {"epochs": final_epoch or EPOCH_COUNTS[method], "loss_history": loss_history,
                 "collect_curve": record_curve, "validation": validation}
-        if method == "dms2f":
+        if adapter is not None:
+            predict, details = adapter(cube, mask, scene, **opts)
+        elif method == "dms2f":
+            from scripts.author_had import dms2f_predictor
+
             predict, details = dms2f_predictor(cube, mask, scene, select_best=final_epoch is None, **opts)
             expected_steps = details.pop("expected_optimizer_steps")
             if steps != expected_steps:
                 raise RuntimeError(f"DMS2F-HAD completed {steps} of {expected_steps} optimizer steps")
         else:
+            from scripts.author_had import transformer_predictor
+
             predict, details = transformer_predictor(method, cube, mask, scene, **opts)
         if method in CMM_METHODS:
             measure(predict, mask, details["best_epoch"], timing_predict=lambda: predict(recompute_cmm=True))
             details["inference_recomputes_cmm"] = True
         else:
             measure(predict, mask, details["best_epoch"], reference_scores=details.pop("reference_scores", None))
+        if adapter is not None and not record_curve:
+            details["auc_last_epoch"] = metadata["auc"]
         metadata.update(details)
     if record_curve:
         return {"train_loss": loss_history, "roc_auc": metadata["epoch_curve"], "seed": metadata.get("seed", 0)}
@@ -250,10 +288,16 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=ROOT / "results/had_comparison_paper",
                         help="Directory for prepared scenes, scores, and the generated dashboard.")
     args = parser.parse_args()
-    args.methods = args.methods or (METHODS if args.author_scores_dir and not args.learning_curves else RUNNABLE_METHODS)
-    author_methods = set(args.methods) & AUTHOR_OUTPUTS.keys()
-    if not args.prepare_only and not args.learning_curves and author_methods and args.author_scores_dir is None:
-        parser.error(f"{', '.join(sorted(author_methods))} use external score maps. Supply --author-scores-dir.")
+    args.methods = args.methods or (tuple(EPOCH_COUNTS) if args.learning_curves else METHODS)
+    imported = set(args.methods) & AUTHOR_OUTPUTS.keys() if args.author_scores_dir else set()
+    if args.learning_curves and (imported or "gmhad" in args.methods):
+        parser.error("Learning curves require an integrated training adapter.")
+    if not args.prepare_only:
+        missing = [str(ROOT / "algorithms" / AUTHOR_ENTRIES[method])
+                   for method in args.methods if method in AUTHOR_ENTRIES and method not in imported
+                   and not (ROOT / "algorithms" / AUTHOR_ENTRIES[method]).is_file()]
+        if missing:
+            parser.error("Install the author checkouts from README.md. Missing:\n" + "\n".join(missing))
     output = args.output_dir.resolve()
     data_dir = output / "data"
     public = output / "site"
@@ -286,7 +330,10 @@ def main():
             path = folder / "metrics.json"
             previous = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
             stale_budget = method in EPOCH_COUNTS and previous.get("epochs") != EPOCH_COUNTS[method]
-            if (method not in AUTHOR_OUTPUTS and "auc" in previous and "error" not in previous and not stale_budget and not args.rerun
+            stale_cuda = method in {"autoad", "tdd"} and previous.get("deterministic_cuda") is True
+            if (method not in imported and previous.get("result_source") != "author_scores"
+                    and "auc" in previous and "error" not in previous
+                    and not (stale_budget or stale_cuda or args.rerun)
                     and (method not in CMM_METHODS or previous.get("inference_recomputes_cmm") is True)
                     and previous.get("timing_protocol") == TIMING_PROTOCOL):
                 if method not in EPOCH_COUNTS or previous.get("auc_last_epoch") is not None:
@@ -310,8 +357,10 @@ def main():
             try:
                 with tempfile.TemporaryDirectory(prefix="fit-", dir=folder) as pending:
                     pending = Path(pending)
-                    if method in AUTHOR_OUTPUTS:
+                    if method in imported:
                         metadata = import_author_scores(args.author_scores_dir, method, scene, mask, pending)
+                    elif method == "gmhad":
+                        metadata = run_gmhad(scene, mask, data_dir / f"{scene}.mat", pending)
                     else:
                         metadata = evaluate(method, scene, pending, cube, mask)
                     artifacts = ["scores.npy", "map.png"]
