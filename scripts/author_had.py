@@ -272,7 +272,10 @@ def dms2f_predictor(cube, mask, scene, *, epochs, loss_history=None, collect_cur
         with validation_stage(validation, check=False):
             return save_residuals(*args)
 
-    with TemporaryDirectory(prefix="dms2f-") as temp, loss_hook, cudnn.flags(enabled=cudnn.enabled, benchmark=True):
+    cudnn_options = cudnn.flags(enabled=cudnn.enabled,
+                                 benchmark=not torch.are_deterministic_algorithms_enabled(),
+                                 deterministic=cudnn.deterministic, allow_tf32=cudnn.allow_tf32)
+    with TemporaryDirectory(prefix="dms2f-") as temp, loss_hook, cudnn_options:
         temp = Path(temp)
         with patch.multiple(training, MODELS_DIR=temp, RESULTS_DIR=temp, roc_auc_score=track_auc,
                             torch=_DmsTrainingTorch(validation), save_residuals=save_validation_map):

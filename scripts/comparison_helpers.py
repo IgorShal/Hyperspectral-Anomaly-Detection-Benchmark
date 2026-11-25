@@ -1,8 +1,20 @@
 """Shared scoring and timing for the comparison."""
 
+import os
 import statistics
 import time
 from contextlib import contextmanager, nullcontext
+
+
+def enable_deterministic_cuda():
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    import torch
+
+    torch.use_deterministic_algorithms(True)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cuda.matmul.allow_tf32 = False
 
 
 def atomic(path, contents):

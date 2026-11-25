@@ -199,7 +199,17 @@ Then run `python -m scripts.had_comparison` to process all available scenes, or 
 - TDD trains the authors' model on scene-local pseudo-anomaly patches for 30 epochs and evaluates the final model. This adapter uses its own patch sampling and tiling.
 - GM-HAD invokes the authors' program on each prepared MAT scene. Its `author_elapsed_s` includes subprocess startup and may include first-time CUDA extension compilation. The common training and inference timing columns are blank for this method.
 
-PyTorch's deterministic CUDA mode is optional. The runner uses the active PyTorch settings for CUDA determinism and TF32. Auto-AD and TDD use fixed seeds, but some CUDA operations can still produce different gradients between runs. In particular, Auto-AD uses reflection padding, and TDD uses bilinear resizing. The GPU, PyTorch and CUDA versions, and TF32 settings can affect final ROC AUC. [PyTorch reproducibility guidance](https://docs.pytorch.org/docs/2.7/notes/randomness.html)
+Run all nine detectors on HAD12 with deterministic CUDA settings:
+
+```bash
+python -m scripts.had_comparison --datasets HAD12 --deterministic-cuda
+```
+
+Omit `--datasets HAD12` to run all scenes. The flag is off by default. With the flag, the runner requires deterministic PyTorch operations, disables TF32 and cuDNN benchmarking, and uses the same settings in the GM-HAD subprocess. In this mode, GM-HAD computes segment medians by sorting and selecting the lower middle value. The default output directory is `results/had_comparison_deterministic`. [PyTorch reproducibility guidance](https://docs.pytorch.org/docs/2.7/notes/randomness.html)
+
+In two runs on HAD12 with the flag, five methods produced identical score maps. DMS2F-HAD, SM-HAD, and GM-HAD showed small differences in final ROC AUC. Their upstream CUDA extensions use custom kernels outside the scope of PyTorch's determinism checks. TDD's final ROC AUC was 0.5090 and 0.7261 in the two runs. [Mamba CUDA backward kernel](https://github.com/state-spaces/mamba/blob/v2.2.6.post3/csrc/selective_scan/selective_scan_bwd_kernel.cuh)
+
+In the default mode, Auto-AD and TDD use fixed seeds, but some CUDA operations can still produce different gradients between runs. Auto-AD uses reflection padding, and TDD uses bilinear resizing. The GPU, PyTorch and CUDA versions, and TF32 settings can affect final ROC AUC.
 
 The optional `--author-scores-dir` still accepts existing maps for Auto-AD, GM-HAD, and TDD. Each map goes in `<scene>/<method>/scores.npy`. The importer also accepts the native `scores.mat` keys `detection` and `det` for Auto-AD and GM-HAD respectively, and `scores.tif` for TDD.
 

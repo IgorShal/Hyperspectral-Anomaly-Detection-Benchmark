@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if not __package__:
     sys.path.insert(0, str(ROOT))
 
-from scripts.comparison_helpers import ValidationTiming, atomic, measure_model, score_auc
+from scripts.comparison_helpers import ValidationTiming, atomic, enable_deterministic_cuda, measure_model, score_auc
 from scripts.tiff_benchmark_data import load_prepared_scene, prepare_tiff_data
 
 METHODS = ("autoad", "gthad", "dms2f", "rx", "aed", "lrx", "smhad", "gmhad", "tdd")
@@ -83,13 +83,15 @@ def save_external_map(scores, method, scene, mask, output):
     return auc
 
 
-def run_gmhad(scene, mask, prepared, output):
+def run_gmhad(scene, mask, prepared, output, *, deterministic_cuda):
     from scipy.io import loadmat
 
-    entry = ROOT / "scripts/gmhad_entry.py"
     source = ROOT / "algorithms/gm_had"
+    command = [sys.executable, "-m", "scripts.gmhad_entry", str(source), str(prepared), str(output)]
+    if deterministic_cuda:
+        command.append("--deterministic-cuda")
     started = time.perf_counter()
-    subprocess.run([sys.executable, str(entry), str(source), str(prepared), str(output)], check=True)
+    subprocess.run(command, cwd=ROOT, check=True)
     elapsed = time.perf_counter() - started
     scores = loadmat(output / f"{scene}.mat", variable_names=("det",))["det"]
     auc = save_external_map(scores, "gmhad", scene, mask, output)
@@ -241,7 +243,7 @@ def save_learning_curve(scene, method, curve, folder, epochs):
          "best_epoch": best_epoch, **curve}, allow_nan=False))
 
 
-def collect_learning_curves(scenes, methods, output, rerun):
+def collect_learning_curves(scenes, methods, output, rerun, *, deterministic_cuda):
     import torch
 
     torch.set_num_threads(2)
@@ -254,12 +256,14 @@ def collect_learning_curves(scenes, methods, output, rerun):
             epochs = EPOCH_COUNTS[method]
             if not rerun and path.exists() and (folder / "learning_curve.png").exists():
                 saved = json.loads(path.read_text(encoding="utf-8"))
-                if saved.get("epoch_limit", saved["epochs"]) == epochs:
+                if (saved.get("epoch_limit", saved["epochs"]) == epochs
+                        and saved.get("deterministic_cuda", False) == deterministic_cuda):
                     continue
             print(scene, method, f"learning curve ({epochs})", flush=True)
             try:
                 folder.mkdir(parents=True, exist_ok=True)
                 curve = evaluate(method, scene, folder, cube, mask, record_curve=True)
+                curve["deterministic_cuda"] = deterministic_cuda
                 save_learning_curve(scene, method, curve, folder, epochs)
             except Exception:
                 failures += 1
@@ -280,12 +284,14 @@ def main():
     parser.add_argument("--prepare-only", action="store_true", help="Export prepared MAT scenes for external detectors.")
     parser.add_argument("--author-scores-dir", type=Path, help="Directory containing Auto-AD, GM-HAD, or TDD score maps.")
     parser.add_argument("--rerun", action="store_true", help="Refresh completed results for the selected methods.")
+    parser.add_argument("--deterministic-cuda", action="store_true",
+                        help="Require deterministic PyTorch operations and disable CUDA TF32.")
     parser.add_argument("--learning-curves", action="store_true", help="Save training histories and plots.")
     parser.add_argument("--datasets", nargs="+", help="Run the selected scenes.")
     default_data = ROOT / "HAD_Data"
     parser.add_argument("--data-dir", type=Path, default=default_data if default_data.is_dir() else ROOT / "data/HAD_Data",
                         help="Directory containing TIFF scenes and their *_gt TIFF masks.")
-    parser.add_argument("--output-dir", type=Path, default=ROOT / "results/had_comparison_paper",
+    parser.add_argument("--output-dir", type=Path,
                         help="Directory for prepared scenes, scores, and the generated dashboard.")
     args = parser.parse_args()
     args.methods = args.methods or (tuple(EPOCH_COUNTS) if args.learning_curves else METHODS)
@@ -298,7 +304,8 @@ def main():
                    and not (ROOT / "algorithms" / AUTHOR_ENTRIES[method]).is_file()]
         if missing:
             parser.error("Install the author checkouts from README.md. Missing:\n" + "\n".join(missing))
-    output = args.output_dir.resolve()
+    default_output = "had_comparison_deterministic" if args.deterministic_cuda else "had_comparison_paper"
+    output = (args.output_dir or ROOT / "results" / default_output).resolve()
     data_dir = output / "data"
     public = output / "site"
     if args.learning_curves:
@@ -313,8 +320,10 @@ def main():
         parser.error(str(exc))
     if args.prepare_only:
         return
+    if args.deterministic_cuda and (set(args.methods) & AUTHOR_ENTRIES.keys()) - imported:
+        enable_deterministic_cuda()
     if args.learning_curves:
-        collect_learning_curves(scenes, methods, output, args.rerun)
+        collect_learning_curves(scenes, methods, output, args.rerun, deterministic_cuda=args.deterministic_cuda)
         return
     public.mkdir(exist_ok=True)
     scene_metadata = json.loads((output / "scenes.json").read_text(encoding="utf-8"))
@@ -330,7 +339,8 @@ def main():
             path = folder / "metrics.json"
             previous = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
             stale_budget = method in EPOCH_COUNTS and previous.get("epochs") != EPOCH_COUNTS[method]
-            stale_cuda = method in {"autoad", "tdd"} and previous.get("deterministic_cuda") is True
+            deterministic_cuda = args.deterministic_cuda and method in AUTHOR_ENTRIES and method not in imported
+            stale_cuda = previous.get("deterministic_cuda", False) != deterministic_cuda
             if (method not in imported and previous.get("result_source") != "author_scores"
                     and "auc" in previous and "error" not in previous
                     and not (stale_budget or stale_cuda or args.rerun)
@@ -360,12 +370,16 @@ def main():
                     if method in imported:
                         metadata = import_author_scores(args.author_scores_dir, method, scene, mask, pending)
                     elif method == "gmhad":
-                        metadata = run_gmhad(scene, mask, data_dir / f"{scene}.mat", pending)
+                        metadata = run_gmhad(scene, mask, data_dir / f"{scene}.mat", pending,
+                                             deterministic_cuda=deterministic_cuda)
                     else:
                         metadata = evaluate(method, scene, pending, cube, mask)
+                    if method in AUTHOR_ENTRIES and method not in imported:
+                        metadata["deterministic_cuda"] = deterministic_cuda
                     artifacts = ["scores.npy", "map.png"]
                     curve = metadata.pop("learning_curve", None)
                     if curve is not None:
+                        curve["deterministic_cuda"] = deterministic_cuda
                         epochs = metadata.get("epochs", metadata.get("training_steps", EPOCH_COUNTS[method]))
                         save_learning_curve(scene, method, curve, pending, epochs)
                         artifacts.extend(["learning_curve.png", "learning_curve.json"])
