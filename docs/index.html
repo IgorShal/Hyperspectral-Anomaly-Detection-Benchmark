@@ -1,0 +1,389 @@
+<!DOCTYPE html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hyperspectral Anomaly Detection Benchmark</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#101922;color:#e6f0f1;font:16px/1.5 "Segoe UI",sans-serif}main{max-width:1200px;margin:auto;padding:5vh 4vw}h1{font-size:clamp(2rem,5vw,3.6rem);letter-spacing:-.045em;margin:0}p{color:#b8ced3}select{padding:8px 16px;background:#233746;color:white;font:inherit;border:1px solid #65818c;border-radius:6px}section{overflow:auto}table{border-collapse:collapse;width:100%;margin-top:1em;font-variant-numeric:tabular-nums}td,th{text-align:right;padding:12px;border-bottom:1px solid #344650;white-space:nowrap}td:first-child,th:first-child{text-align:left}th{color:#91d7ca}img{width:160px;image-rendering:pixelated}a{color:#a1e1dc}
+th button{background:none;border:0;color:inherit;font:inherit;font-weight:inherit;padding:0;cursor:pointer}
+th button:hover{text-decoration:underline}
+th button:focus-visible{outline:2px solid #91d7ca;outline-offset:4px}
+.sort-icon{display:inline-block;min-width:1em;margin-left:.25em}
+td strong{font-weight:750;color:#fff}
+.map-cell{text-align:center}
+.map-cell img{display:block;width:144px;height:auto;margin:auto}
+nav{display:flex;flex-wrap:wrap;gap:.5rem 1.5rem;margin:1rem 0 2rem}
+.downloads{display:flex;align-items:center;flex-wrap:wrap;gap:.75rem 1rem}
+.download-button{background:#a1e1dc;color:#101922;padding:.5rem .85rem;border-radius:6px;font-weight:700;text-decoration:none}
+.download-button:hover{text-decoration:underline}
+h2{margin:2rem 0 .5rem;font-size:clamp(1.4rem,3vw,2rem)}
+.table-wrap{overflow-x:auto;margin:1rem 0}
+.table-wrap:focus-visible{outline:2px solid #91d7ca;outline-offset:3px}
+.scene-matrix,#parameters-table{margin-top:0}
+.scene-matrix :is(th,td){padding:.55rem .75rem}
+.scene-matrix tr>:first-child{position:sticky;left:0;background:#101922}
+.scene-matrix tfoot tr,.scene-matrix tfoot tr>:first-child{background:#233746}
+#parameters-table :is(th,td){text-align:left;white-space:normal;vertical-align:top}
+#parameters-table th[scope=row],#parameters-table td:last-child{white-space:nowrap}
+#parameters-table td:nth-child(3){min-width:19rem}
+#parameters-table td:last-child a{display:block}
+#parameters-table td:last-child a+a{margin-top:.35rem}
+</style>
+<main>
+<h1>Hyperspectral Anomaly Detection Benchmark</h1>
+<p id="progress" role="status"></p>
+<nav aria-label="Report sections">
+  <a href="#comparison">Scene comparison</a>
+  <a href="#timing">Runtime by scene</a>
+  <a href="#parameters">Settings and sources</a>
+  <a href="#scene-details">Maps and measurements</a>
+</nav>
+
+<section id="comparison" aria-labelledby="comparison-title">
+  <h2 id="comparison-title">ROC AUC by scene</h2>
+  <p>The comparison uses ROC AUC at the final completed epoch with seed 0, or seed 3 for GM-HAD. RX, LRX, and AED are evaluated once. Each scene completed by all nine methods contributes equally to the mean. The highest value in each row is shown in bold.</p>
+  <div class="table-wrap" tabindex="0" role="region" aria-label="ROC AUC by scene">
+    <table id="comparison-table" class="scene-matrix"><thead></thead><tbody></tbody><tfoot></tfoot></table>
+  </div>
+  <div class="downloads">
+    <a id="download-excel" class="download-button" href="HAD_comparison.xlsx" download hidden>Download Excel</a>
+    <a href="results.json" download>Download metrics JSON</a>
+  </div>
+</section>
+
+<section id="timing" aria-labelledby="timing-title">
+  <h2 id="timing-title">Runtime by scene</h2>
+  <label>Metric <select id="timing-metric"><option value="infer_s">Inference (ms)</option><option value="train_s">Training (s)</option><option value="amortized_iter_s">Mean optimizer step (ms)</option><option value="validation_s">ROC AUC evaluation (s)</option></select></label>
+  <p>Inference starts with the shared scene cube in CPU memory and a model ready for prediction. It includes method-specific input preparation and GPU transfers where applicable, and ends when the complete score map is on the CPU. The table reports the median of five runs after one warm-up.</p>
+  <p><strong>GT-HAD and SM-HAD.</strong> Each timed run uses frozen weights and includes a preliminary reconstruction, fresh patch matching (CMM), and a final pass. ROC AUC uses the correspondences obtained during training on the evaluated scene.</p>
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Runtime by scene">
+    <table id="timing-table" class="scene-matrix"><thead></thead><tbody></tbody><tfoot></tfoot></table>
+  </div>
+  <p>ROC AUC checks are timed separately and include evaluation passes, metric calculation, and checkpoint handling where applicable. Mean time per optimizer step is training time divided by the number of optimizer updates. Training fields are blank for RX, LRX, and AED. SM-HAD training time covers all three seeds. The shortest time in each row is shown in bold.</p>
+  <details id="scene-preparation" hidden>
+    <summary>Shared TIFF preparation by scene</summary>
+    <p>One shared measurement per scene covers TIFF cube and mask loading, axis alignment, and band selection. The method timers start after this step.</p>
+    <div class="table-wrap" tabindex="0" role="region" aria-label="TIFF preparation time"><table id="preparation-table">
+      <thead><tr><th scope="col">Scene</th><th scope="col">TIFF preparation (s)</th></tr></thead><tbody></tbody>
+    </table></div>
+  </details>
+  <p>Methods ran sequentially. Each mean uses scenes with all applicable measurements for the selected metric.</p>
+</section>
+
+<section id="parameters" aria-labelledby="parameters-title">
+  <h2 id="parameters-title">Settings and sources</h2>
+  <p>Budgets apply per TIFF scene. RX, LRX, and AED operate without training epochs. AED and LRX were calibrated on HAD12, HAD13, San_Diego, and Hydice_Urban, which are included in the benchmark.</p>
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Settings for the nine methods">
+    <table id="parameters-table">
+      <thead><tr><th scope="col">Method</th><th scope="col">Epochs / steps</th><th scope="col">Run settings</th><th scope="col">Sources</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">AED</th><td>No training</td><td>Area threshold 64 and σ = 0.5, from project calibration.</td><td><a href="https://ieeexplore.ieee.org/document/7994698/">AED paper</a></td></tr>
+        <tr><th scope="row">GT-HAD</th><td>150 epochs</td><td>Adam, learning rate 1e−3, batch size 64, 9×9 window, stride 3, embedding dimension 64, MLP expansion 2, and MSE. Background matching runs every 25 epochs before the final epoch. Settings follow the authors' <code>main.py</code>, with seed 0 for the local scenes.</td><td><a href="https://doi.org/10.1109/TNNLS.2024.3355166">GT-HAD paper</a><a href="https://github.com/jeline0110/GT-HAD/blob/c118ee0d606610aae12f3fab1ef18579169f4809/dnnmethods/GT-HAD/main.py#L53-L78">GT-HAD training settings</a></td></tr>
+        <tr><th scope="row">SM-HAD</th><td>100 epochs per seed</td><td>Adam, learning rate 1e−3, batch size 64, 15×15 window, embedding dimension 96, Mamba state dimension 64, and soft-shrinkage threshold 0.01. The outer stride is 5. Inner patches are 3×3 with stride 3. MLP expansion is 2, the loss is MSE, and background matching runs every 25 epochs before the final epoch. Seeds are 0, 100, and 200.</td><td><a href="https://github.com/Tanishq251/SM-HAD/blob/5fbbb4c836253a331d1528160e3d10d30f8bcda5/assets/SM-HAD_paper.pdf">SM-HAD paper, §IV-C</a><a href="https://github.com/Tanishq251/SM-HAD/tree/5fbbb4c836253a331d1528160e3d10d30f8bcda5">SM-HAD source code</a></td></tr>
+        <tr><th scope="row">GM-HAD</th><td>Up to 60 epochs</td><td>Training stops after 10 epochs without a decrease greater than 1e−6 in the summed loss. Seed 3 is set once before the run. AdamW with PCGrad, learning rate 5e−4, weight decay 5e−4, β = (0.9, 0.99), hidden dimension 256, Mamba state dimension 32, three PCA components, and 1% region masking.</td><td><a href="https://doi.org/10.1109/JSTARS.2026.3682454">GM-HAD paper</a><a href="https://github.com/TaoziLakeDeepSleep/GM-HAD/blob/main/main.py#L181-L208">GM-HAD source code</a></td></tr>
+        <tr><th scope="row">RX</th><td>No training</td><td>Full-scene mean and covariance. Mahalanobis distance with a pseudoinverse of the covariance matrix.</td><td><a href="https://doi.org/10.1109/29.60107">Reed and Yu paper</a></td></tr>
+        <tr><th scope="row">LRX</th><td>No training</td><td>Local statistics with 5×5 inner and 9×9 outer windows and regularization of 1e−5, from project calibration.</td><td><a href="https://www.sic.rma.ac.be/~dborghys/Publications/BorghysSPIE2012_8390_90.pdf">Local RX reference</a><a href="https://github.com/Ayushma00/Hyperspectral-Anomaly-Detection-Survey">Survey benchmark code</a></td></tr>
+        <tr><th scope="row">DMS2F-HAD</th><td>100 epochs</td><td>Adam, learning rate 5e−4, weight decay 1e−4, 16×16 window, stride 8, embedding dimension 64, and spectral group size 16. Batch size 32, depth 1, <code>spec_rate=0.5</code>, <code>spa_token=16</code>, MSE + 0.1 × L1, and seed 0 follow the authors' code.</td><td><a href="https://openaccess.thecvf.com/content/WACV2026/papers/Pant_DMS2F-HAD_A_Dual-branch_Mamba-based_Spatial-Spectral_Fusion_Network_for_Hyperspectral_Anomaly_WACV_2026_paper.pdf">DMS2F-HAD paper, §4.3</a><a href="https://github.com/Ayushma00/DMS2F-HAD/tree/8546823701ef021da2a150e0bf9e9965863bbabc">DMS2F-HAD source code</a></td></tr>
+        <tr><th scope="row">Auto-AD</th><td>1,001 steps</td><td>Adam, learning rate 1e−2, five levels of 128 channels, input noise with σ = 0.1, weighted MSE, mask updates every 100 steps, and seed 0.</td><td><a href="https://github.com/RSIDEA-WHU2020/Auto-AD">Auto-AD repository</a></td></tr>
+        <tr><th scope="row">TDD</th><td>30 epochs</td><td>Per-scene training with pseudo-anomalies. Adam, encoder learning rate 3e−4, decoder learning rate 1e−3, weight decay 5e−4, batch size 1, 24×24 windows, stride 12, 96×96 network input, and seed 0.</td><td><a href="https://github.com/Jingtao-Li-CVer/TDD">TDD repository</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="scene-details" aria-labelledby="scene-title">
+<h2 id="scene-title">Maps and measurements</h2>
+<label>Scene <select id="scene"><option value="">Mean across scenes</option></select></label>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Maps and measurements"><table id="scene-table"><thead><tr><th scope="col" data-sort="name">Method</th>
+<th scope="col" data-sort="count">Scenes</th>
+<th scope="col" data-sort="auc">Map ROC AUC</th>
+<th scope="col" data-sort="auc_last_epoch">Comparison ROC AUC</th>
+<th scope="col" data-sort="train_s">Training (s)</th>
+<th scope="col" data-sort="amortized_iter_s">Mean optimizer step (ms)</th>
+<th scope="col" data-sort="infer_s">Inference (ms)</th>
+<th scope="col" data-sort="validation_s">ROC AUC evaluation (s)</th>
+<th scope="col" data-sort="auc_checks">ROC AUC checks</th>
+<th scope="col" data-sort="best_epoch">Map epoch or step</th>
+<th scope="col" class="map-cell">Anomaly map</th>
+<th scope="col" class="map-cell" title="White pixels mark labeled anomalies">Ground truth</th>
+</tr></thead><tbody></tbody></table></div>
+<p>DMS2F-HAD, Auto-AD, and TDD maps use the checkpoint with the highest ROC AUC against the evaluated scene's mask. SM-HAD maps use the best final-epoch result across three seeds. GT-HAD and GM-HAD maps use the final completed epoch. Select an anomaly map to download its pixel scores as a NumPy array.</p>
+<p id="errors"></p>
+</section>
+</main>
+<script>
+const names = {
+  gthad: 'GT-HAD', smhad: 'SM-HAD', dms2f: 'DMS2F-HAD', gmhad: 'GM-HAD', autoad: 'Auto-AD',
+  rx: 'RX', lrx: 'LRX', aed: 'AED', tdd: 'TDD'
+};
+const bestDirections = {auc: -1, auc_last_epoch: -1, train_s: 1, amortized_iter_s: 1, infer_s: 1, validation_s: 1};
+const precision = {auc: 4, auc_last_epoch: 4, train_s: 3, amortized_iter_s: 3, infer_s: 3, validation_s: 3, auc_checks: 0};
+const milliseconds = new Set(['amortized_iter_s', 'infer_s']);
+const classical = new Set(['rx', 'lrx', 'aed']);
+const scene = document.querySelector('#scene');
+const progress = document.querySelector('#progress');
+const errors = document.querySelector('#errors');
+const body = document.querySelector('#scene-table tbody');
+const headers = [...document.querySelectorAll('#scene-table th[data-sort]')];
+const comparison = document.querySelector('#comparison-table');
+const timingTable = document.querySelector('#timing-table');
+const timingMetric = document.querySelector('#timing-metric');
+const preparation = document.querySelector('#scene-preparation');
+const preparationBody = document.querySelector('#preparation-table tbody');
+const excelDownload = document.querySelector('#download-excel');
+const formatAuc = new Intl.NumberFormat('en-US', {minimumFractionDigits: 4, maximumFractionDigits: 4});
+const formatTime = new Intl.NumberFormat('en-US', {minimumFractionDigits: 3, maximumFractionDigits: 3});
+let rows = [];
+let sceneNames = [];
+let lastPayload;
+let sortKey = 'auc';
+let sortDirection = -1;
+
+function average(values) {
+  const valid = values.filter(Number.isFinite);
+  return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : null;
+}
+
+function comparisonAuc(row) {
+  if (!row || row.error) return null;
+  if (classical.has(row.method) || row.result_source === 'author_scores') return row.auc;
+  if (row.method === 'smhad') return row.seed_auc?.['0'];
+  return row.auc_last_epoch;
+}
+
+function appendMatrixRow(section, label, values, format, direction, sceneName) {
+  const row = section.insertRow();
+  const heading = document.createElement('th');
+  heading.scope = 'row';
+  if (sceneName) {
+    const link = document.createElement('a');
+    link.href = '#scene-details';
+    link.textContent = label;
+    link.addEventListener('click', () => {
+      scene.value = sceneName;
+      render();
+    });
+    heading.append(link);
+  } else {
+    heading.textContent = label;
+  }
+  row.append(heading);
+
+  const finite = values.filter(Number.isFinite);
+  const best = direction < 0 ? Math.max(...finite) : Math.min(...finite);
+  for (const value of values) {
+    const cell = row.insertCell();
+    if (!Number.isFinite(value)) {
+      cell.textContent = '—';
+    } else if (value === best) {
+      const strong = document.createElement('strong');
+      strong.textContent = format.format(value);
+      cell.append(strong);
+    } else {
+      cell.textContent = format.format(value);
+    }
+  }
+}
+
+function renderMatrix(table, {valueFor, format, direction, appliesTo = () => true}) {
+  const methods = Object.keys(names);
+  const applicable = methods.filter(appliesTo);
+  const scores = new Map(sceneNames.map(name => [name, new Map()]));
+  for (const row of rows) {
+    if (!row.error && appliesTo(row.method)) scores.get(row.scene).set(row.method, valueFor(row));
+  }
+  const complete = sceneNames.filter(name => applicable.every(method => Number.isFinite(scores.get(name).get(method))));
+  const means = Object.fromEntries(methods.map(method => [method, average(complete.map(name => scores.get(name).get(method)))]));
+  methods.sort((left, right) => Number(means[left] == null) - Number(means[right] == null)
+    || direction * (means[left] - means[right]) || names[left].localeCompare(names[right]));
+
+  const head = table.tHead;
+  const data = table.tBodies[0];
+  const foot = table.tFoot;
+  head.replaceChildren();
+  data.replaceChildren();
+  foot.replaceChildren();
+  const header = head.insertRow();
+  for (const label of ['Scene', ...methods.map(method => names[method])]) {
+    const cell = document.createElement('th');
+    cell.scope = 'col';
+    cell.textContent = label;
+    header.append(cell);
+  }
+  for (const name of sceneNames) {
+    appendMatrixRow(data, name, methods.map(method => scores.get(name).get(method)), format, direction, name);
+  }
+  appendMatrixRow(foot, 'Mean · ' + complete.length, methods.map(method => means[method]), format, direction);
+}
+
+function renderTiming() {
+  const metric = timingMetric.value;
+  const scale = milliseconds.has(metric) ? 1000 : 1;
+  const trainedOnly = metric === 'train_s' || metric === 'amortized_iter_s';
+  renderMatrix(timingTable, {
+    valueFor: row => Number.isFinite(row[metric]) ? scale * row[metric] : null,
+    format: formatTime,
+    direction: 1,
+    appliesTo: method => !trainedOnly || !classical.has(method)
+  });
+}
+
+function renderPreparation() {
+  const durations = new Map(rows.filter(row => Number.isFinite(row.scene_prep_s))
+    .map(row => [row.scene, row.scene_prep_s]));
+  preparation.hidden = durations.size === 0;
+  preparationBody.replaceChildren();
+  for (const name of sceneNames.filter(name => durations.has(name))) {
+    const row = preparationBody.insertRow();
+    row.insertCell().textContent = name;
+    row.insertCell().textContent = formatTime.format(durations.get(name));
+  }
+}
+
+function compareRows(first, second) {
+  const left = first[sortKey];
+  const right = second[sortKey];
+  if (left == null || right == null) {
+    return Number(left == null) - Number(right == null) || first.name.localeCompare(second.name);
+  }
+  const comparison = sortKey === 'name' ? left.localeCompare(right) : left - right;
+  return sortDirection * comparison || first.name.localeCompare(second.name);
+}
+
+function appendMaps(row, sceneName, record) {
+  const predictionCell = row.insertCell();
+  const truthCell = row.insertCell();
+  if (!sceneName || !record.count) return;
+
+  const sceneDirectory = encodeURIComponent(sceneName);
+  const methodDirectory = sceneDirectory + '/' + record.method;
+  const truthPath = sceneDirectory + '/ground_truth.png';
+  const mapVersion = record.epochs ? '&epochs=' + record.epochs + '&auc=' + record.auc : '';
+  const previews = [
+    [predictionCell, methodDirectory + '/map.png?palette=jet' + mapVersion, methodDirectory + '/scores.npy', 'Map for ' + record.name],
+    [truthCell, truthPath, truthPath, 'Ground Truth — ' + sceneName]
+  ];
+  for (const [cell, source, destination, label] of previews) {
+    const link = document.createElement('a');
+    const image = document.createElement('img');
+    cell.className = 'map-cell';
+    link.href = destination;
+    image.src = source;
+    image.alt = label;
+    link.append(image);
+    cell.append(link);
+  }
+}
+
+function render() {
+  const sceneName = scene.value;
+  const visible = rows.filter(row => !sceneName || sceneName === row.scene);
+  const records = Object.entries(names).map(([method, name]) => {
+    const group = visible.filter(row => row.method === method && !row.error && Number.isFinite(row.auc));
+    const record = {method, name, count: group.length, best_epoch: sceneName ? group[0]?.best_epoch : null};
+    if (sceneName) record.epochs = group[0]?.epochs;
+    for (const key of Object.keys(bestDirections)) {
+      record[key] = average(group.map(row => key === 'auc_last_epoch' ? comparisonAuc(row) : row[key]));
+    }
+    record.auc_checks = average(group.map(row => row.auc_checks));
+    return record;
+  });
+
+  const best = {};
+  for (const [key, direction] of Object.entries(bestDirections)) {
+    const values = records.map(record => record[key]).filter(Number.isFinite);
+    if (values.length) best[key] = direction < 0 ? Math.max(...values) : Math.min(...values);
+  }
+
+  body.replaceChildren();
+  for (const record of records.sort(compareRows)) {
+    const row = body.insertRow();
+    for (const header of headers) {
+      const key = header.dataset.sort;
+      const value = record[key];
+      const cell = row.insertCell();
+      let label = value ?? '—';
+      if (Number.isFinite(value) && key in precision) {
+        label = (value * (milliseconds.has(key) ? 1000 : 1)).toFixed(precision[key]);
+      }
+      if (Number.isFinite(value) && value === best[key]) {
+        const bold = document.createElement('strong');
+        bold.textContent = label;
+        cell.append(bold);
+      } else {
+        cell.textContent = label;
+      }
+    }
+    appendMaps(row, sceneName, record);
+  }
+
+  for (const header of headers) {
+    const active = header.dataset.sort === sortKey;
+    if (active) header.setAttribute('aria-sort', sortDirection > 0 ? 'ascending' : 'descending');
+    else header.removeAttribute('aria-sort');
+    header.querySelector('.sort-icon').textContent = active ? (sortDirection > 0 ? '▲' : '▼') : '↕';
+  }
+  errors.textContent = visible.filter(row => row.error || row.last_epoch_error)
+    .map(row => row.scene + ' / ' + names[row.method] + ' — ' + (row.error || row.last_epoch_error)).join(' · ');
+  const sceneCount = new Set(rows.map(row => row.scene)).size;
+  const methodCount = new Set(rows.map(row => row.method)).size;
+  const complete = rows.filter(row => !row.error && Number.isFinite(row.auc)).length;
+  progress.textContent = `${complete} results · ${sceneCount} scenes · ${methodCount} methods`;
+}
+
+for (const header of headers) {
+  const button = document.createElement('button');
+  const icon = document.createElement('span');
+  button.type = 'button';
+  button.textContent = header.textContent;
+  icon.className = 'sort-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  button.append(icon);
+  button.addEventListener('click', () => {
+    const key = header.dataset.sort;
+    sortDirection = key === sortKey ? -sortDirection : (bestDirections[key] ?? (key === 'count' ? -1 : 1));
+    sortKey = key;
+    render();
+  });
+  header.replaceChildren(button);
+}
+
+async function updateExcelDownload(payload) {
+  excelDownload.hidden = true;
+  if (!globalThis.crypto?.subtle) return;
+  try {
+    const response = await fetch('HAD_comparison.sha256', {cache: 'no-store'});
+    if (!response.ok) return;
+    const expected = (await response.text()).trim();
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
+    const actual = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+    if (payload === lastPayload) excelDownload.hidden = actual !== expected;
+  } catch {
+    // The metrics and maps can still be viewed without the workbook export.
+  }
+}
+
+async function refresh() {
+  try {
+    const response = await fetch('results.json', {cache: 'no-store'});
+    if (!response.ok) throw new Error(response.statusText);
+    const payload = await response.text();
+    if (payload === lastPayload) return;
+    rows = JSON.parse(payload).filter(row => Object.hasOwn(names, row.method));
+    sceneNames = [...new Set(rows.map(row => row.scene))].sort(new Intl.Collator('en', {numeric: true}).compare);
+    for (const name of sceneNames) {
+      if (![...scene.options].some(option => option.value === name)) scene.add(new Option(name, name));
+    }
+    renderMatrix(comparison, {valueFor: comparisonAuc, format: formatAuc, direction: -1});
+    renderTiming();
+    renderPreparation();
+    render();
+    lastPayload = payload;
+    void updateExcelDownload(payload);
+  } catch (error) {
+    lastPayload = null;
+    excelDownload.hidden = true;
+    progress.textContent = 'Could not load results';
+  }
+}
+scene.addEventListener('change', render);
+timingMetric.addEventListener('change', renderTiming);
+refresh();
+setInterval(refresh, 5000);
+</script></html>

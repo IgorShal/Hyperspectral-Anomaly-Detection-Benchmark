@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.venv/
+.idea/
+.vscode/
+.env
+.DS_Store
+Thumbs.db
+*.log
+
+# Input scenes, checkpoints and new runs stay local.
+/data/
+/HAD_Data/
+/results/
+*.mat
+*.tif
+*.tiff
+*.pt
+*.pth
