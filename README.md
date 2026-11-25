@@ -20,7 +20,7 @@ Saved maps for Auto-AD, DMS2F-HAD, and TDD use an epoch selected by ROC AUC agai
 
 ### Timing protocol
 
-Methods ran sequentially on an RTX 3060 under WSL2. CUDA synchronization brackets the training and validation measurements where applicable and ensures inference work completes before a timed repetition ends.
+Runtime was measured under WSL2 on a system with an AMD Ryzen 5 5600X CPU and an NVIDIA RTX 3060 GPU. Methods ran sequentially. CUDA synchronization brackets the training and validation measurements where applicable and ensures inference work completes before a timed repetition ends.
 
 | Measurement | Definition |
 | --- | --- |
@@ -76,9 +76,35 @@ Table 1. Final-epoch or single-run pixel-level ROC AUC on all 14 scenes. Bold ma
 
 AED leads the scene-average ROC AUC. The detailed report and workbook provide the runtime breakdown and per-scene measurements. [Detailed results](results/had_comparison_paper/report.md) · [Excel workbook](results/had_comparison_paper/site/HAD_comparison.xlsx)
 
+#### Inference latency
+
+Table 2. Wall-clock inference latency in milliseconds for all nine methods. The mean gives equal weight to each of the 14 scenes. Bold marks the shortest unrounded latency in each row.
+
+| Scene | AED | GT-HAD | SM-HAD | GM-HAD | RX | LRX | DMS2F-HAD | Auto-AD | TDD |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HAD12 | 34.33 | 254.58 | 133.98 | 110.81 | 19.53 | 301.21 | 43.32 | **6.61** | 827.68 |
+| HAD13 | 34.52 | 259.65 | 136.44 | 115.54 | 18.39 | 292.86 | 37.18 | **6.70** | 856.82 |
+| HAD14 | 56.91 | 1320.31 | 557.38 | 167.97 | 35.18 | 459.10 | 90.30 | **19.78** | 1828.37 |
+| HAD21 | 56.14 | 1347.17 | 569.21 | 143.55 | 32.98 | 434.60 | 95.76 | **14.35** | 1829.66 |
+| HAD27 | 38.99 | 411.91 | 216.75 | 119.21 | 18.98 | 245.54 | 44.81 | **7.91** | 1112.57 |
+| HAD29 | 34.48 | 259.27 | 136.78 | 109.90 | 19.31 | 289.33 | 42.57 | **6.96** | 818.20 |
+| HAD106 | 34.11 | 254.83 | 134.60 | 105.02 | 19.09 | 291.00 | 36.37 | **6.58** | 824.09 |
+| HAD113 | 34.06 | 258.84 | 136.70 | 119.32 | 17.00 | 294.59 | 35.36 | **6.29** | 813.56 |
+| HAD125 | 34.59 | 259.09 | 137.03 | 115.23 | 17.45 | 294.90 | 41.56 | **6.27** | 820.15 |
+| San_Diego | 56.25 | 1345.07 | 567.97 | 163.74 | 33.10 | 435.71 | 90.27 | **13.66** | 1848.68 |
+| Urban | 57.39 | 1344.84 | 557.03 | 177.96 | 34.28 | 444.79 | 95.00 | **13.47** | 1846.34 |
+| Airport | 56.54 | 1345.20 | 567.81 | 138.18 | 33.60 | 440.49 | 78.97 | **12.97** | 1834.14 |
+| Hydice_Urban | 47.57 | 816.02 | 369.86 | 115.37 | 25.16 | 401.51 | 58.25 | **11.87** | 1426.03 |
+| Beach | 122.53 | 6227.39 | 2555.56 | 327.21 | 72.46 | 1029.05 | 202.66 | **39.01** | 3846.74 |
+| Mean | 49.89 | 1121.73 | 484.08 | 144.93 | 28.32 | 403.91 | 70.88 | **12.32** | 1466.65 |
+
+Each scene value is the median of five timed runs after one untimed warm-up. The mean is the sum of the 14 scene medians divided by 14. Values were converted from seconds to milliseconds before rounding for display.
+
+Auto-AD has the shortest latency on all 14 scenes and averages 12.32 ms per scene. RX averages 28.32 ms per scene, the shortest among the classical methods.
+
 ### Historical benchmark with extended training budgets
 
-Table 2. Historical and current training budgets and mean ROC AUC for all nine methods. The 200-epoch configuration applies to SM-HAD, DMS2F-HAD, and GM-HAD. The source is the 200-epoch GM-HAD workbook from the earlier `ml had` project, sheet `ROC AUC`. [Historical workbook](../ml%20had/outputs/had_comparison_112/HAD_%D1%81%D1%80%D0%B0%D0%B2%D0%BD%D0%B5%D0%BD%D0%B8%D0%B5_GM-HAD_200.xlsx)
+Table 3. Historical and current training budgets and mean ROC AUC for all nine methods. The 200-epoch configuration applies to SM-HAD, DMS2F-HAD, and GM-HAD. Historical values come from the `ROC AUC` sheet of the 200-epoch benchmark workbook.
 
 | Method | Historical budget | Historical mean ROC AUC | Current budget | Current mean ROC AUC |
 | --- | --- | ---: | --- | ---: |
@@ -92,7 +118,7 @@ Table 2. Historical and current training budgets and mean ROC AUC for all nine m
 | Auto-AD | 1,001 optimizer steps | 0.8768 | 1,001 optimizer steps | 0.8840 |
 | TDD | 30 epochs | 0.3542 | 30 epochs | 0.6590 |
 
-Table 3. Historical final-epoch ROC AUC from the same workbook. RX, LRX, and AED use the single-run values. Means are computed from the original cell values.
+Table 4. Historical final-epoch ROC AUC from the same workbook. RX, LRX, and AED use the single-run values. Means are computed from the original cell values.
 
 | Scene | AED | GT-HAD | SM-HAD | GM-HAD | RX | LRX | DMS2F-HAD | Auto-AD | TDD |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
