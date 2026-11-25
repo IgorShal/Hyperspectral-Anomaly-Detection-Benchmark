@@ -14,7 +14,7 @@ The tables below report the original nine-detector experiments. The current runn
 
 The scene pairs consist of hyperspectral TIFF cubes and binary anomaly masks. Each method receives the same cube and spectral band selection within a scene. Preprocessing retains all bands for Hydice_Urban, selects 186 bands from 425-band AVIRIS-NG cubes, and keeps the first 186 bands of the other scenes. Positive mask pixels mark anomalies. AED and LRX were calibrated on HAD12, HAD13, San_Diego, and Hydice_Urban, which are included in the benchmark. [Scene manifest](results/had_comparison_paper/scenes.json) · [Preprocessing code](scripts/tiff_benchmark_data.py)
 
-ROC AUC is calculated across pixels within each scene, and the reported means weight scenes equally. The current comparison uses the last completed epoch with seed 0, seed 3 for GM-HAD, and one detector run for each classical method. Models are fitted and assessed on the same scene.
+ROC AUC is calculated across pixels within each scene, and the reported means weight scenes equally. The current comparison uses the last completed epoch with seed 0, seed 3 for GM-HAD, and one detector run for each classical method. Every learned method is fitted separately on each scene and evaluated on that same scene.
 
 Saved maps for Auto-AD, DMS2F-HAD, and TDD use an epoch selected by ROC AUC against the evaluated scene's mask. SM-HAD saves the map with the highest final-epoch AUC over seeds 0, 100, and 200. GT-HAD and GM-HAD save the final-epoch map. In the JSON, `auc` evaluates the saved map. The main comparison uses `seed_auc["0"]` for SM-HAD and `auc_last_epoch` for the other learned methods.
 
@@ -28,11 +28,13 @@ Runtime was measured under WSL2 on a system with an AMD Ryzen 5 5600X CPU and an
 | Training | Wall-clock duration from the prepared CPU cube through method-specific input preparation, model and optimizer setup, device transfers, and optimizer updates, with the separately measured ROC AUC evaluation time deducted. SM-HAD training time covers all three seeds. |
 | Mean optimizer-step time | Per scene, training time divided by the number of optimizer updates. SM-HAD counts updates across all three seeds. The reported mean averages the per-scene ratios. RX, LRX, and AED have no training or optimizer-step time. |
 | ROC AUC evaluation | Separate wall-clock measurement for validation passes, transfers for evaluation, metric calculation, and checkpoint handling where applicable. The check count includes the final evaluation of the map. |
-| Inference | Starts from the prepared scene cube in CPU memory with the model ready to predict. Includes method-specific input preparation, transfers, prediction, postprocessing, and returning the full score map to CPU memory. Each per-scene value is the median of five runs after one untimed warm-up. Model loading, shared TIFF preparation, ROC AUC computation, and file export are outside this latency. |
+| Inference | The standard timing starts from the prepared scene cube in CPU memory with the model ready to predict. It includes method-specific input preparation, transfers, prediction, postprocessing, and returning the full score map to CPU memory. Each per-scene value is the median of five runs after one untimed warm-up. Model loading, shared TIFF preparation, ROC AUC computation, and file export are outside this latency. Auto-AD uses the timing procedure described below. |
 
 GT-HAD and SM-HAD include a preliminary reconstruction, fresh content matching (CMM), and a final reconstruction with frozen weights in every timed inference. The CMM-inclusive timings come from repeat fits with the original settings and selected seeds. The ROC AUC and saved maps come from the original runs and use the correspondences obtained during training.
 
-GM-HAD rebuilds PCA, superpixels, regional features, and the graph inside the inference timer. Auto-AD reuses the fixed noise tensor prepared during its fit. The timer includes moving this tensor to the GPU and computing the reconstruction residual. DMS2F-HAD follows the upstream block validation in training mode with gradients disabled, so random masking is active. [Timing and evaluation code](scripts/had_comparison.py) · [Repeated inference timer](scripts/comparison_helpers.py) · [Method adapters](scripts/author_had.py)
+Inference is timed on the training scene for every learned method. A fitted Auto-AD model can reconstruct only the scene it was trained on, using the fixed noise tensor prepared during fitting. For this reason, the Auto-AD timing covers reconstruction and excludes generation of the anomaly score map.
+
+GM-HAD rebuilds PCA, superpixels, regional features, and the graph inside the inference timer. DMS2F-HAD follows the upstream block validation in training mode with gradients disabled, so random masking is active. [Timing and evaluation code](scripts/had_comparison.py) · [Repeated inference timer](scripts/comparison_helpers.py) · [Method adapters](scripts/author_had.py)
 
 ### Training settings
 
@@ -100,7 +102,7 @@ Table 2. Wall-clock inference latency in milliseconds for all nine methods. The 
 
 Each scene value is the median of five timed runs after one untimed warm-up. The mean is the sum of the 14 scene medians divided by 14. Values were converted from seconds to milliseconds before rounding for display.
 
-Auto-AD has the shortest latency on all 14 scenes and averages 12.32 ms per scene. RX averages 28.32 ms per scene, the shortest among the classical methods.
+Auto-AD averages 12.32 ms per scene for reconstruction. Its latency excludes anomaly score map generation. RX averages 28.32 ms per scene, the shortest among the classical methods.
 
 ### Historical benchmark with extended training budgets
 
