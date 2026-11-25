@@ -214,6 +214,7 @@ def save_learning_curve(scene, method, curve, folder, epochs):
         raise ValueError(f"{scene}/{method}: incomplete or invalid learning curve")
 
     best_epoch = max(range(epochs), key=auc.__getitem__) + 1
+    unit = "step" if method == "autoad" else "epoch"
     names = {"autoad": "Auto-AD", "gthad": "GT-HAD", "dms2f": "DMS2F-HAD",
              "smhad": "SM-HAD", "gmhad": "GM-HAD", "tdd": "TDD"}
     fig = Figure(figsize=(9, 6), layout="constrained")
@@ -231,7 +232,7 @@ def save_learning_curve(scene, method, curve, folder, epochs):
                      label=f"Peak {auc[best_epoch - 1]:.4f} at {unit} {best_epoch}")
     auc_axis.scatter([epochs], [auc[-1]], marker="s", facecolors="none", edgecolors="#237358", zorder=4,
                      label=f"Final {unit} {auc[-1]:.4f}")
-    auc_axis.set(xlabel="Optimizer step" if method == "autoad" else "Epoch", ylabel="ROC AUC")
+    auc_axis.set(xlabel="Optimizer step" if unit == "step" else "Epoch", ylabel="ROC AUC")
     auc_axis.legend(loc="best", frameon=False)
     for axis in (loss_axis, auc_axis):
         axis.grid(True, color="#e5e7eb", linewidth=0.7)

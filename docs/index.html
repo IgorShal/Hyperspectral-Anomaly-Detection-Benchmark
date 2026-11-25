@@ -27,6 +27,7 @@ h2{margin:2rem 0 .5rem;font-size:clamp(1.4rem,3vw,2rem)}
 </style>
 <main>
 <h1>Hyperspectral Anomaly Detection Benchmark</h1>
+<p id="archive-notice" hidden>Archived 14-scene experiment. This report contains the recorded numerical results. <a href="scenes.json" download>Download scene manifest</a></p>
 <p id="progress" role="status"></p>
 <nav aria-label="Report sections">
   <a href="#comparison">Scene comparison</a>
@@ -100,10 +101,10 @@ h2{margin:2rem 0 .5rem;font-size:clamp(1.4rem,3vw,2rem)}
 <th scope="col" data-sort="validation_s">ROC AUC evaluation (s)</th>
 <th scope="col" data-sort="auc_checks">ROC AUC checks</th>
 <th scope="col" data-sort="best_epoch">Map epoch or step</th>
-<th scope="col" class="map-cell">Anomaly map</th>
-<th scope="col" class="map-cell" title="White pixels mark labeled anomalies">Ground truth</th>
+<th scope="col" class="map-cell" data-map-column>Anomaly map</th>
+<th scope="col" class="map-cell" data-map-column title="White pixels mark labeled anomalies">Ground truth</th>
 </tr></thead><tbody></tbody></table></div>
-<p>DMS2F-HAD, Auto-AD, and TDD maps use the checkpoint with the highest ROC AUC against the evaluated scene's mask. SM-HAD maps use the best final-epoch result across three seeds. GT-HAD and GM-HAD maps use the final completed epoch. Select an anomaly map to download its pixel scores as a NumPy array.</p>
+<p id="map-download-note">Select an anomaly map to download its pixel scores as a NumPy array.</p>
 <p id="errors"></p>
 </section>
 </main>
@@ -130,6 +131,7 @@ const excelDownload = document.querySelector('#download-excel');
 const formatAuc = new Intl.NumberFormat('en-US', {minimumFractionDigits: 4, maximumFractionDigits: 4});
 const formatTime = new Intl.NumberFormat('en-US', {minimumFractionDigits: 3, maximumFractionDigits: 3});
 let rows = [];
+let archivedRun = false;
 let sceneNames = [];
 let lastPayload;
 let sortKey = 'auc';
@@ -247,6 +249,7 @@ function compareRows(first, second) {
 }
 
 function appendMaps(row, sceneName, record) {
+  if (archivedRun) return;
   const predictionCell = row.insertCell();
   const truthCell = row.insertCell();
   if (!sceneName || !record.count) return;
@@ -366,6 +369,10 @@ async function refresh() {
     const payload = await response.text();
     if (payload === lastPayload) return;
     rows = JSON.parse(payload).filter(row => Object.hasOwn(names, row.method));
+    archivedRun = rows.length > 0 && rows.every(row => row.archived_run === true);
+    document.querySelector('#archive-notice').hidden = !archivedRun;
+    document.querySelector('#map-download-note').hidden = archivedRun;
+    for (const column of document.querySelectorAll('[data-map-column]')) column.hidden = archivedRun;
     sceneNames = [...new Set(rows.map(row => row.scene))].sort(new Intl.Collator('en', {numeric: true}).compare);
     for (const name of sceneNames) {
       if (![...scene.options].some(option => option.value === name)) scene.add(new Option(name, name));
@@ -375,7 +382,7 @@ async function refresh() {
     renderPreparation();
     render();
     lastPayload = payload;
-    void updateExcelDownload(payload);
+    if (!archivedRun) void updateExcelDownload(payload);
   } catch (error) {
     lastPayload = null;
     excelDownload.hidden = true;

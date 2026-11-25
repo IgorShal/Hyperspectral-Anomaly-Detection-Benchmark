@@ -2,23 +2,23 @@
 
 ## Abstract
 
-We compare nine hyperspectral anomaly detectors on 14 TIFF scenes using pixel-level ROC AUC and wall-clock runtime. AED achieves the highest mean ROC AUC (0.9754), followed by GT-HAD (0.9646) and SM-HAD (0.9491). GM-HAD reaches 0.8761 under the current 60-epoch protocol and 0.9470 in the historical 200-epoch benchmark. The runtime protocol distinguishes shared TIFF preparation, training, ROC AUC evaluation, and inference.
+We compare nine hyperspectral anomaly detectors on 14 TIFF scenes using pixel-level ROC AUC and wall-clock runtime. AED achieves the highest mean ROC AUC (0.9754), followed by GT-HAD (0.9646) and SM-HAD (0.9491). GM-HAD reaches 0.8761 in the archived 60-epoch run and 0.9470 in the historical 200-epoch benchmark. The runtime protocol distinguishes shared TIFF preparation, training, ROC AUC evaluation, and inference.
 
-[Interactive report](http://127.0.0.1:8767/) · [Detailed results](results/had_comparison_paper/report.md) · [Excel workbook](results/had_comparison_paper/site/HAD_comparison.xlsx) · [Raw metrics](results/had_comparison_paper/site/results.json)
+[Serve the archived report](#serve-the-report) · [Archived metrics JSON](docs/results.json) · [Scene manifest](docs/scenes.json)
 
 ## Experimental methods
 
-The tables below report the original nine-detector experiments. The current runner launches all nine methods with separate author checkouts. Auto-AD and TDD use per-scene adapters around the author models, and GM-HAD uses the author training program. These runs have their own protocol and results.
+Tables 1 and 2 report the archived 14-scene experiment, with 126 method–scene records under timing protocol 2. The current runner launches all nine methods with separate author checkouts and records timing protocol 3. It uses new per-scene adapters for Auto-AD and TDD and runs the GM-HAD authors' training program. Use the metrics and manifest from this repository revision when citing the archived tables. [Archived measurements](docs/results.json) · [Scene manifest](docs/scenes.json)
 
 ### Scenes and evaluation
 
-The scene pairs consist of hyperspectral TIFF cubes and binary anomaly masks. Each method receives the same cube and spectral band selection within a scene. Preprocessing retains all bands for Hydice_Urban, selects 186 bands from 425-band AVIRIS-NG cubes, and keeps the first 186 bands of the other scenes. Positive mask pixels mark anomalies. AED and LRX were calibrated on HAD12, HAD13, San_Diego, and Hydice_Urban, which are included in the benchmark. [Scene manifest](results/had_comparison_paper/scenes.json) · [Preprocessing code](scripts/tiff_benchmark_data.py)
+The scene pairs consist of hyperspectral TIFF cubes and binary anomaly masks. Each method receives the same cube and spectral band selection within a scene. Preprocessing retains all bands for Hydice_Urban, selects 186 bands from 425-band AVIRIS-NG cubes, and keeps the first 186 bands of the other scenes. Positive mask pixels mark anomalies. AED and LRX were calibrated on HAD12, HAD13, San_Diego, and Hydice_Urban, which are included in the benchmark. [Scene manifest](docs/scenes.json) · [Preprocessing code](scripts/tiff_benchmark_data.py)
 
-ROC AUC is calculated across pixels within each scene, and the reported means weight scenes equally. The current comparison uses the last completed epoch with seed 0, seed 3 for GM-HAD, and one detector run for each classical method. Every learned method is fitted separately on each scene and evaluated on that same scene.
+ROC AUC is calculated across pixels within each scene, and the reported means weight scenes equally. The archived comparison uses the last completed epoch with seed 0, seed 3 for GM-HAD, and one detector run for each classical method. Every learned method is fitted separately on each scene and evaluated on that same scene.
 
 Saved maps for Auto-AD, DMS2F-HAD, and TDD use an epoch selected by ROC AUC against the evaluated scene's mask. SM-HAD saves the map with the highest final-epoch AUC over seeds 0, 100, and 200. GT-HAD and GM-HAD save the final-epoch map. In the JSON, `auc` evaluates the saved map. The main comparison uses `seed_auc["0"]` for SM-HAD and `auc_last_epoch` for the other learned methods.
 
-### Timing protocol
+### Timing protocol for the archived run
 
 Runtime was measured under WSL2 on a system with an AMD Ryzen 5 5600X CPU and an NVIDIA RTX 3060 GPU. Methods ran sequentially. CUDA synchronization brackets the training and validation measurements where applicable and ensures inference work completes before a timed repetition ends.
 
@@ -28,11 +28,11 @@ Runtime was measured under WSL2 on a system with an AMD Ryzen 5 5600X CPU and an
 | Training | Wall-clock duration from the prepared CPU cube through method-specific input preparation, model and optimizer setup, device transfers, and optimizer updates, with the separately measured ROC AUC evaluation time deducted. SM-HAD training time covers all three seeds. |
 | Mean optimizer-step time | Per scene, training time divided by the number of optimizer updates. SM-HAD counts updates across all three seeds. The reported mean averages the per-scene ratios. RX, LRX, and AED have no training or optimizer-step time. |
 | ROC AUC evaluation | Separate wall-clock measurement for validation passes, transfers for evaluation, metric calculation, and checkpoint handling where applicable. The check count includes the final evaluation of the map. |
-| Inference | The standard timing starts from the prepared scene cube in CPU memory with the model ready to predict. It includes method-specific input preparation, transfers, prediction, postprocessing, and returning the full score map to CPU memory. Each per-scene value is the median of five runs after one untimed warm-up. Model loading, shared TIFF preparation, ROC AUC computation, and file export are outside this latency. Auto-AD uses the timing procedure described below. |
+| Inference | The standard timing starts from the prepared scene cube in CPU memory with the model ready to predict. It includes method-specific input preparation, transfers, prediction, postprocessing, and returning the full score map to CPU memory. Each per-scene value is the median of five runs after one untimed warm-up. Model loading, shared TIFF preparation, ROC AUC computation, and file export are outside this latency. The Auto-AD stages are documented below. |
 
 GT-HAD and SM-HAD include a preliminary reconstruction, fresh content matching (CMM), and a final reconstruction with frozen weights in every timed inference. The CMM-inclusive timings come from repeat fits with the original settings and selected seeds. The ROC AUC and saved maps come from the original runs and use the correspondences obtained during training.
 
-Inference is timed on the training scene for every learned method. A fitted Auto-AD model can reconstruct only the scene it was trained on, using the fixed noise tensor prepared during fitting. For this reason, the Auto-AD timing covers reconstruction and excludes generation of the anomaly score map.
+Inference is timed on the training scene for every learned method. The archived Auto-AD timer starts with a prepared CPU cube and a fixed CPU noise tensor. The measured call normalizes the input cube on the CPU, transfers the noise tensor to the GPU, reconstructs the scene, copies the reconstruction back, and sums squared residuals across bands on the CPU to produce the score map.
 
 GM-HAD rebuilds PCA, superpixels, regional features, and the graph inside the inference timer. DMS2F-HAD follows the upstream block validation in training mode with gradients disabled, so random masking is active. [Timing and evaluation code](scripts/had_comparison.py) · [Repeated inference timer](scripts/comparison_helpers.py) · [Method adapters](scripts/author_had.py)
 
@@ -54,7 +54,7 @@ The rerun uses 14 local TIFF scenes with shared spectral band preprocessing in `
 
 ## Results
 
-### Current benchmark
+### Archived 14-scene benchmark
 
 Table 1. Final-epoch or single-run pixel-level ROC AUC on all 14 scenes. Bold marks the highest unrounded value in each row.
 
@@ -76,7 +76,7 @@ Table 1. Final-epoch or single-run pixel-level ROC AUC on all 14 scenes. Bold ma
 | Beach | 0.9935 | **0.9996** | 0.9950 | 0.9844 | 0.9812 | 0.9699 | 0.9661 | 0.9857 | 0.9313 |
 | Mean | **0.9754** | 0.9646 | 0.9491 | 0.8761 | 0.9420 | 0.9419 | 0.8846 | 0.8840 | 0.6590 |
 
-AED leads the scene-average ROC AUC. The detailed report and workbook provide the runtime breakdown and per-scene measurements. [Detailed results](results/had_comparison_paper/report.md) · [Excel workbook](results/had_comparison_paper/site/HAD_comparison.xlsx)
+Excluding HAD12, HAD13, San_Diego, and Hydice_Urban, which were used to tune AED and LRX, AED still ranks first on the remaining ten scenes with mean ROC AUC **0.9743**, followed by GT-HAD at **0.9591** and SM-HAD at **0.9556**. These means use the unrounded archived measurements. [Per-scene metrics](docs/results.json)
 
 #### Inference latency
 
@@ -102,13 +102,13 @@ Table 2. Wall-clock inference latency in milliseconds for all nine methods. The 
 
 Each scene value is the median of five timed runs after one untimed warm-up. The mean is the sum of the 14 scene medians divided by 14. Values were converted from seconds to milliseconds before rounding for display.
 
-Auto-AD averages 12.32 ms per scene for reconstruction. Its latency excludes anomaly score map generation. RX averages 28.32 ms per scene, the shortest among the classical methods.
+The archived Auto-AD score-map latency averages 12.32 ms per scene. It includes the reconstruction and the CPU residual calculation described above. RX averages 28.32 ms per scene, the shortest among the classical methods.
 
 ### Historical benchmark with extended training budgets
 
-Table 3. Historical and current training budgets and mean ROC AUC for all nine methods. The 200-epoch configuration applies to SM-HAD, DMS2F-HAD, and GM-HAD. Historical values come from the `ROC AUC` sheet of the 200-epoch benchmark workbook.
+Table 3. Training budgets from the earlier and archived 14-scene runs and mean ROC AUC for all nine methods. The 200-epoch configuration applies to SM-HAD, DMS2F-HAD, and GM-HAD. Historical values come from the `ROC AUC` sheet of the 200-epoch benchmark workbook.
 
-| Method | Historical budget | Historical mean ROC AUC | Current budget | Current mean ROC AUC |
+| Method | Historical budget | Historical mean ROC AUC | Archived budget | Archived mean ROC AUC |
 | --- | --- | ---: | --- | ---: |
 | AED | No training | 0.9754 | No training | 0.9754 |
 | GT-HAD | 150 epochs | 0.9597 | 150 epochs | 0.9646 |
@@ -140,9 +140,9 @@ Table 4. Historical final-epoch ROC AUC from the same workbook. RX, LRX, and AED
 | Beach | 0.9935 | 0.9942 | **0.9996** | 0.9867 | 0.9812 | 0.9699 | 0.9431 | 0.9721 | 0.0544 |
 | Mean | 0.9754 | 0.9597 | **0.9864** | 0.9470 | 0.9420 | 0.9419 | 0.9384 | 0.8768 | 0.3542 |
 
-GM-HAD reaches **0.9470** at 200 epochs in the historical workbook and has higher final-epoch AUC than the current run on 11 of 14 scenes. Its mean over checkpoints selected by the scene labels is 0.9762. The earlier 200-epoch run in this workspace achieved **0.9468** at the final epoch with seed 0. The current GM-HAD run reaches **0.8761** at 60 epochs with seed 3. Early stopping after ten epochs without a loss improvement was enabled, and all 14 scenes reached the limit.
+GM-HAD reaches **0.9470** at 200 epochs in the historical workbook and has higher final-epoch AUC than the archived 60-epoch run on 11 of 14 scenes. Its mean over checkpoints selected by the scene labels is 0.9762. The earlier 200-epoch run in this workspace achieved **0.9468** at the final epoch with seed 0. The archived 60-epoch GM-HAD run reaches **0.8761** at 60 epochs with seed 3. Early stopping after ten epochs without a loss improvement was enabled, and all 14 scenes reached the limit.
 
-Historical final-epoch ROC AUC is also higher for SM-HAD (0.9864 at 200 epochs) and DMS2F-HAD (0.9384 at 200 epochs). These are comparisons between benchmark runs. GM-HAD changes both its seed and training budget, and the historical SM-HAD and DMS2F-HAD runs use earlier local implementations. The differences therefore cannot be attributed to the training budget alone. The historical workbook also predates the current inference timing protocol.
+Historical final-epoch ROC AUC is also higher for SM-HAD (0.9864 at 200 epochs) and DMS2F-HAD (0.9384 at 200 epochs). These are comparisons between benchmark runs. GM-HAD changes both its seed and training budget, and the historical SM-HAD and DMS2F-HAD runs use earlier local implementations. The differences therefore cannot be attributed to the training budget alone. The historical workbook also predates the 14-scene inference timing protocol.
 
 ## Reproducibility
 
@@ -151,16 +151,18 @@ Historical final-epoch ROC AUC is also higher for SM-HAD (0.9864 at 200 epochs) 
 Start the server from the repository root. Viewing the report requires only Python and its standard library.
 
 ```bash
-python -m http.server 8767 --bind 127.0.0.1 --directory results/had_comparison_paper/site
+python -m http.server 8767 --bind 127.0.0.1 --directory docs
 ```
 
-The report shows ROC AUC, mean scores, per-scene training and inference times, average training step time, training settings, and source links for all nine methods across 14 scenes. Select a scene name in either table to view its maps and detailed timings. Select an anomaly map to download its per-pixel scores as a NumPy array. The Excel button is available when a workbook matches the displayed results. [Open the report](http://127.0.0.1:8767/), [Per-scene timings](http://127.0.0.1:8767/#timing)
+The archived report opens at `http://127.0.0.1:8767/` while the server is running. It displays the recorded ROC AUC and timing tables from the 14-scene experiment. To view maps from a new run, serve that run's `site` directory with the same command. [Archived metrics JSON](docs/results.json) · [Scene manifest](docs/scenes.json)
 
 ### Prepare the data
 
 Place each TIFF cube and its ground-truth mask in the same directory. For example, `01_HAD12.tif` and `01_HAD12_gt.tiff` form the `HAD12` scene. Both `.tif` and `.tiff` extensions are supported. The cube must have two spatial axes, Y and X, and one spectral axis. The mask must have shape Y × X, with positive values marking anomalies.
 
-Preprocessing keeps all bands for scenes whose names start with `Hydice`, selects 186 bands from 425-band AVIRIS-NG cubes, and takes the first 186 bands for all other scenes. The scene manifest lists the source filenames, dimensions, and band indices. Rerunning the benchmark requires the original TIFF files. [Scene manifest](results/had_comparison_paper/scenes.json)
+Preprocessing keeps all bands for scenes whose names start with `Hydice`, selects 186 bands from 425-band AVIRIS-NG cubes, and takes the first 186 bands for all other scenes. The scene manifest identifies the exact HAD100 archive members and the pinned CNND reference files. It records the TIFF filenames, SHA-256 digests, dimensions, and retained band indices. The reference cubes and twelve binarized masks match the experiment inputs. The exact masks for San Diego and Airport require the original local files. The referenced CNND masks for those two scenes have different annotations. [Scene manifest](docs/scenes.json)
+
+The HAD100 headers specify little-endian float32 cubes with band-interleaved-by-line layout. Read the dimensions from the header, reshape to Y × bands × X, and transpose to Y × X × bands. The CNND `data` arrays already use Y × X × bands. Threshold the matching ground-truth arrays at zero and preserve spatial orientation when writing TIFF. The SHA-256 digests identify the original TIFF encodings.
 
 ### Run the benchmark
 
@@ -255,9 +257,11 @@ The benchmark integrates DMS2F-HAD, GT-HAD, and SM-HAD through local adapters.
 | `scripts/tiff_benchmark_data.py` | TIFF loading, spectral band selection, and scene preprocessing |
 | `algorithms/classical_had.py` | Benchmark implementation of AED |
 | `utils/epoch_selection.py` | Scene checkpoint selection |
-| `docs/index.html` | Comparison report template |
+| `docs/index.html` | Archived dashboard and template for new runs |
+| `docs/results.json` | Archived per-scene measurements from the 14-scene run |
+| `docs/scenes.json` | Input file identities and source provenance |
 
-The baseline comparison code is adapted from the repository accompanying the survey by Pant et al. [Survey preprint](https://arxiv.org/abs/2507.05730) · [Survey repository](https://github.com/Ayushma00/Hyperspectral-Anomaly-Detection-Survey)
+The archived experiment used an earlier baseline adapted from the survey by Pant et al. The current runner loads separately downloaded author implementations through local adapters. The survey repository has no published software license. [Survey preprint](https://arxiv.org/abs/2507.05730) · [Survey repository](https://github.com/Ayushma00/Hyperspectral-Anomaly-Detection-Survey)
 
 ### Implementations and papers
 
@@ -275,6 +279,6 @@ The baseline comparison code is adapted from the repository accompanying the sur
 
 ### Licenses
 
-The benchmark code is available under the MIT license. Separately downloaded implementations are subject to their respective authors' terms. Auto-AD is provided for academic use. [Benchmark license](LICENSE) ? [Auto-AD terms](https://github.com/RSIDEA-WHU2020/Auto-AD/blob/main/LICENSE)
+The benchmark code is available under the MIT license. Separately downloaded implementations are subject to their respective authors' terms. Auto-AD is provided for academic use. [Benchmark license](LICENSE) · [Auto-AD terms](https://github.com/RSIDEA-WHU2020/Auto-AD/blob/main/LICENSE)
 
 TIFF scenes and ground-truth masks are local inputs. Git ignores these files.
